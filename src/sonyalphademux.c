@@ -50,10 +50,11 @@ enum
 };
 
 static GstStaticPadTemplate sonyalpha_demux_src_template_factory =
-GST_STATIC_PAD_TEMPLATE ("src_%u",
+GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_SOMETIMES,
-    GST_STATIC_CAPS_ANY);
+    GST_STATIC_CAPS ("image/jpeg")
+    );
 
 static GstStaticPadTemplate sonyalpha_demux_sink_template_factory =
 GST_STATIC_PAD_TEMPLATE ("sink",
@@ -115,28 +116,18 @@ gst_sonyalpha_demux_init (GstSonyAlphaDemux * sonyalpha)
   gst_pad_set_chain_function (sonyalpha->sinkpad,
       GST_DEBUG_FUNCPTR (gst_sonyalpha_demux_chain));
 
+  sonyalpha->srcpad =
+      gst_pad_new_from_static_template (&sonyalpha_demux_src_template_factory,
+      "src");
+  gst_element_add_pad (GST_ELEMENT_CAST (sonyalpha), sonyalpha->srcpad);
+
   sonyalpha->adapter = gst_adapter_new ();
-  sonyalpha->mime_type = "image/jpeg";
   sonyalpha->content_length = -1;
   sonyalpha->header_completed = FALSE;
   sonyalpha->scanpos = 0;
   sonyalpha->singleStream = DEFAULT_SINGLE_STREAM;
 }
 
-static void
-gst_sonyalpha_demux_remove_src_pads (GstSonyAlphaDemux * demux)
-{
-  while (demux->srcpads != NULL) {
-    GstSonyAlphaPad *mppad = demux->srcpads->data;
-
-    gst_element_remove_pad (GST_ELEMENT (demux), mppad->pad);
-    g_free (mppad->mime);
-    g_free (mppad);
-    demux->srcpads = g_slist_delete_link (demux->srcpads, demux->srcpads);
-  }
-  demux->srcpads = NULL;
-  demux->numpads = 0;
-}
 
 static void
 gst_sonyalpha_demux_dispose (GObject * object)
@@ -146,37 +137,14 @@ gst_sonyalpha_demux_dispose (GObject * object)
   if (demux->adapter != NULL)
     g_object_unref (demux->adapter);
   demux->adapter = NULL;
-  g_free (demux->mime_type);
-  demux->mime_type = NULL;
-  gst_sonyalpha_demux_remove_src_pads (demux);
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
-}
-
-static const gchar *
-gst_sonyalpha_demux_get_gstname (GstSonyAlphaDemux * demux, gchar * mimetype)
-{
-  GstSonyAlphaDemuxClass *klass;
-  const gchar *gstname;
-
-  klass = GST_SONYALPHA_DEMUX_GET_CLASS (demux);
-
-  /* use hashtable to convert to gst name */
-  gstname = g_hash_table_lookup (klass->gstnames, mimetype);
-  if (gstname == NULL) {
-    /* no gst name mapping, use mime type */
-    gstname = mimetype;
-  }
-  GST_DEBUG_OBJECT (demux, "gst name for %s is %s", mimetype, gstname);
-  return gstname;
 }
 
 static GstFlowReturn
 gst_sonyalpha_combine_flows (GstSonyAlphaDemux * demux, GstSonyAlphaPad * pad,
     GstFlowReturn ret)
 {
-  GSList *walk;
-
   /* store the value */
   pad->last_ret = ret;
 
@@ -185,90 +153,11 @@ gst_sonyalpha_combine_flows (GstSonyAlphaDemux * demux, GstSonyAlphaPad * pad,
   if (ret != GST_FLOW_NOT_LINKED)
     goto done;
 
-  /* only return NOT_LINKED if all other pads returned NOT_LINKED */
-  for (walk = demux->srcpads; walk; walk = g_slist_next (walk)) {
-    GstSonyAlphaPad *opad = (GstSonyAlphaPad *) walk->data;
-
-    ret = opad->last_ret;
-    /* some other return value (must be SUCCESS but we can return
-     * other values as well) */
-    if (ret != GST_FLOW_NOT_LINKED)
-      goto done;
-  }
-  /* if we get here, all other pads were unlinked and we return
-   * NOT_LINKED then */
+  ret = ((GstSonyAlphaPad*)demux->srcpad)->last_ret;
 done:
   return ret;
 }
 
-static GstSonyAlphaPad *
-gst_sonyalpha_find_pad_by_mime (GstSonyAlphaDemux * demux, gchar * mime,
-    gboolean * created)
-{
-  GSList *walk;
-
-  walk = demux->srcpads;
-  while (walk) {
-    GstSonyAlphaPad *pad = (GstSonyAlphaPad *) walk->data;
-
-    if (!strcmp (pad->mime, mime)) {
-      if (created) {
-        *created = FALSE;
-      }
-      return pad;
-    }
-
-    walk = walk->next;
-  }
-  /* pad not found, create it */
-  {
-    GstPad *pad;
-    GstSonyAlphaPad *mppad;
-    gchar *name;
-    const gchar *capsname;
-    GstCaps *caps;
-
-    mppad = g_new0 (GstSonyAlphaPad, 1);
-
-    GST_DEBUG_OBJECT (demux, "creating pad with mime: %s", mime);
-
-    name = g_strdup_printf ("src_%u", demux->numpads);
-    pad =
-        gst_pad_new_from_static_template (&sonyalpha_demux_src_template_factory,
-        name);
-    g_free (name);
-
-    mppad->pad = pad;
-    mppad->mime = g_strdup (mime);
-    mppad->last_ret = GST_FLOW_OK;
-    mppad->last_ts = GST_CLOCK_TIME_NONE;
-    mppad->discont = TRUE;
-
-    demux->srcpads = g_slist_prepend (demux->srcpads, mppad);
-    demux->numpads++;
-
-    /* take the mime type, convert it to the caps name */
-    capsname = gst_sonyalpha_demux_get_gstname (demux, mime);
-    caps = gst_caps_from_string (capsname);
-    GST_DEBUG_OBJECT (demux, "caps for pad: %s", capsname);
-    gst_pad_use_fixed_caps (pad);
-    gst_pad_set_active (pad, TRUE);
-    gst_pad_set_caps (pad, caps);
-    gst_caps_unref (caps);
-
-    gst_element_add_pad (GST_ELEMENT_CAST (demux), pad);
-
-    if (created) {
-      *created = TRUE;
-    }
-
-    if (demux->singleStream) {
-      gst_element_no_more_pads (GST_ELEMENT_CAST (demux));
-    }
-
-    return mppad;
-  }
-}
 
 
 static gint
@@ -277,10 +166,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
   const guint8 *data;
   const guint8 *dataend;
 
-  int boundary_len;
   int datalen;
-  guint8 *pos;
-  guint8 *end, *next;
 
   datalen = gst_adapter_available (sonyalpha->adapter);
   data = gst_adapter_map (sonyalpha->adapter, datalen);
@@ -328,13 +214,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   res = GST_FLOW_OK;
 
   if (GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_DISCONT)) {
-    GSList *l;
-
-    for (l = sonyalpha->srcpads; l != NULL; l = l->next) {
-      GstSonyAlphaPad *srcpad = l->data;
-
-      srcpad->discont = TRUE;
-    }
+    ((GstSonyAlphaPad*)sonyalpha->srcpad)->discont = TRUE;
     gst_adapter_clear (adapter);
   }
   gst_adapter_push (adapter, buf);
@@ -370,9 +250,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     } else {
       GstClockTime ts;
 
-      srcpad =
-          gst_sonyalpha_find_pad_by_mime (sonyalpha,
-          sonyalpha->mime_type, &created);
+      srcpad = sonyalpha->srcpad;
 
       ts = gst_adapter_prev_pts (adapter, NULL);
       outbuf = gst_adapter_take_buffer (adapter, datalen);
@@ -447,7 +325,6 @@ gst_sonyalpha_demux_change_state (GstElement * element,
       gst_adapter_clear (sonyalpha->adapter);
       sonyalpha->content_length = -1;
       sonyalpha->scanpos = 0;
-      gst_sonyalpha_demux_remove_src_pads (sonyalpha);
       break;
     case GST_STATE_CHANGE_READY_TO_NULL:
       break;

@@ -69,15 +69,12 @@ struct _GstSonyAlphaDemux
 
   /* pad */
   GstPad *sinkpad;
-
-  GSList *srcpads;
-  guint numpads;
+  GstPad *srcpad;
 
   GstAdapter *adapter;
 
   /* Header information of the current frame */
   gboolean header_completed;
-  gchar *mime_type;
   gint content_length;
 
   /* Index inside the current data when manually looking for the boundary */
