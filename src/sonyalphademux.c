@@ -23,18 +23,6 @@
  * SECTION:element-sonyalphademux
  * @see_also: #GstSonyAlphaMux
  *
- * SonyAlphaDemux uses the Content-type field of incoming buffers to demux and 
- * push data to dynamic source pads. Most of the time sonyalpha streams are 
- * sequential JPEG frames generated from a live source such as a network source
- * or a camera.
- *
- * The output buffers of the sonyalphademux typically have no timestamps and are
- * usually played as fast as possible (at the rate that the source provides the
- * data).
- *
- * the content in sonyalpha files is separated with a boundary string that can
- * be configured specifically with the #GstSonyAlphaDemux:boundary property
- * otherwise it will be autodetected.
  *
  * <refsect2>
  * <title>Sample pipelines</title>
@@ -54,14 +42,11 @@
 GST_DEBUG_CATEGORY_STATIC (gst_sonyalpha_demux_debug);
 #define GST_CAT_DEFAULT gst_sonyalpha_demux_debug
 
-#define DEFAULT_BOUNDARY		NULL
 #define DEFAULT_SINGLE_STREAM	FALSE
 
 enum
 {
   PROP_0,
-  PROP_BOUNDARY,
-  PROP_SINGLE_STREAM
 };
 
 static GstStaticPadTemplate sonyalpha_demux_src_template_factory =
@@ -131,7 +116,6 @@ gst_sonyalpha_demux_init (GstSonyAlphaDemux * sonyalpha)
       GST_DEBUG_FUNCPTR (gst_sonyalpha_demux_chain));
 
   sonyalpha->adapter = gst_adapter_new ();
-  sonyalpha->boundary = DEFAULT_BOUNDARY;
   sonyalpha->mime_type = "image/jpeg";
   sonyalpha->content_length = -1;
   sonyalpha->header_completed = FALSE;
@@ -162,8 +146,6 @@ gst_sonyalpha_demux_dispose (GObject * object)
   if (demux->adapter != NULL)
     g_object_unref (demux->adapter);
   demux->adapter = NULL;
-  g_free (demux->boundary);
-  demux->boundary = NULL;
   g_free (demux->mime_type);
   demux->mime_type = NULL;
   gst_sonyalpha_demux_remove_src_pads (demux);
@@ -288,32 +270,13 @@ gst_sonyalpha_find_pad_by_mime (GstSonyAlphaDemux * demux, gchar * mime,
   }
 }
 
-static gboolean
-get_line_end (const guint8 * data, const guint8 * dataend, guint8 ** end,
-    guint8 ** next)
-{
-  guint8 *x;
-  gboolean foundr = FALSE;
-
-  for (x = (guint8 *) data; x < dataend; x++) {
-    if (*x == '\r') {
-      foundr = TRUE;
-    } else if (*x == '\n') {
-      *end = x - (foundr ? 1 : 0);
-      *next = x + 1;
-      return TRUE;
-    }
-  }
-  return FALSE;
-}
-
 
 static gint
 sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
 {
   const guint8 *data;
   const guint8 *dataend;
-  gchar *boundary;
+
   int boundary_len;
   int datalen;
   guint8 *pos;
@@ -323,8 +286,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
   data = gst_adapter_map (sonyalpha->adapter, datalen);
   dataend = data + datalen;
 
-
-  if (pos >= dataend - 136)
+  if (0 >= dataend - 136)
     goto need_more_data;
 
   if (G_UNLIKELY (data[0] != '\xFF')) {
