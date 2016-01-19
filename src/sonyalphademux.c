@@ -99,9 +99,9 @@ gst_sonyalpha_demux_class_init (GstSonyAlphaDemuxClass * klass)
       gst_static_pad_template_get (&sonyalpha_demux_sink_template_factory));
   gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&sonyalpha_demux_src_template_factory));
-  gst_element_class_set_static_metadata (gstelement_class, "SonyAlpha demuxer",
+  gst_element_class_set_static_metadata (gstelement_class, "Sony Alpha demuxer",
       "Codec/Demuxer",
-      "demux sonyalpha streams",
+      "demux sonyalpha live streams",
       "Michael Farrell <micolous+git@gmail.com>");
 }
 
