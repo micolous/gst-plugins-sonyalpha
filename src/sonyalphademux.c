@@ -39,10 +39,8 @@
 
 #include "sonyalphademux.h"
 
-GST_DEBUG_CATEGORY_STATIC (gst_sonyalpha_demux_debug);
-#define GST_CAT_DEFAULT gst_sonyalpha_demux_debug
-
-#define DEFAULT_SINGLE_STREAM	FALSE
+GST_DEBUG_CATEGORY_EXTERN (gst_sonyalpha_debug);
+#define GST_CAT_DEFAULT gst_sonyalpha_debug
 
 enum
 {
@@ -113,19 +111,18 @@ gst_sonyalpha_demux_init (GstSonyAlphaDemux * sonyalpha)
       gst_pad_new_from_static_template (&sonyalpha_demux_sink_template_factory,
       "sink");
   gst_element_add_pad (GST_ELEMENT_CAST (sonyalpha), sonyalpha->sinkpad);
-  gst_pad_set_chain_function (sonyalpha->sinkpad,
-      GST_DEBUG_FUNCPTR (gst_sonyalpha_demux_chain));
-
   sonyalpha->srcpad =
       gst_pad_new_from_static_template (&sonyalpha_demux_src_template_factory,
       "src");
   gst_element_add_pad (GST_ELEMENT_CAST (sonyalpha), sonyalpha->srcpad);
 
+  gst_pad_set_chain_function (sonyalpha->sinkpad,
+      GST_DEBUG_FUNCPTR (gst_sonyalpha_demux_chain));
+
+
   sonyalpha->adapter = gst_adapter_new ();
-  sonyalpha->content_length = -1;
   sonyalpha->header_completed = FALSE;
   sonyalpha->scanpos = 0;
-  sonyalpha->singleStream = DEFAULT_SINGLE_STREAM;
 }
 
 
@@ -141,47 +138,57 @@ gst_sonyalpha_demux_dispose (GObject * object)
   G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
-static GstFlowReturn
-gst_sonyalpha_combine_flows (GstSonyAlphaDemux * demux, GstSonyAlphaPad * pad,
-    GstFlowReturn ret)
-{
-  /* store the value */
-  pad->last_ret = ret;
-
-  /* any other error that is not-linked can be returned right
-   * away */
-  if (ret != GST_FLOW_NOT_LINKED)
-    goto done;
-
-  ret = ((GstSonyAlphaPad*)demux->srcpad)->last_ret;
-done:
-  return ret;
-}
-
-
 
 static gint
 sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
 {
   const guint8 *data;
   const guint8 *dataend;
+  memset(&(sonyalpha->header), 0, sizeof(GstSonyAlphaPayloadHeader));
 
   int datalen;
 
   datalen = gst_adapter_available (sonyalpha->adapter);
-  data = gst_adapter_map (sonyalpha->adapter, datalen);
-  dataend = data + datalen;
 
-  if (0 >= dataend - 136)
+  if (datalen < 128)
     goto need_more_data;
 
-  if (G_UNLIKELY (data[0] != '\xFF')) {
-    GST_DEBUG_OBJECT (sonyalpha, "Expected header byte (0xFF)");
+  data = gst_adapter_take_buffer (sonyalpha->adapter, 128);
+
+
+  /* Need a header */
+  if (GST_READ_UINT8(data) != 0xFF) {
+    GST_DEBUG_OBJECT (sonyalpha, "Expected header byte (0xFF), got %hhx instead", GST_READ_UINT8(data));
+    GST_DEBUG_OBJECT (sonyalpha, "First bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(data), GST_READ_UINT64_BE(data + 8));
     goto wrong_header;
   }
 
+  /* Check for a magic sequence */
+  uint32_t magic = GST_READ_UINT32_BE(data + 8);
+  if (magic != htonl(0x24356879)) {
+    GST_DEBUG_OBJECT (sonyalpha, "Did not get magic number (0x24356879), got 0x%lx instead", magic);
+    goto wrong_header;
+  }
+
+  sonyalpha->header.payload_type = GST_READ_UINT8(data + 1);
+  sonyalpha->header.sequence_number = GST_READ_UINT16_BE(data + 2);
+
+  /* Get the first timestamp of the file */
+  if (sonyalpha->header.payload_type == 0x01) {
+    sonyalpha->header.timestamp = GST_READ_UINT32_BE(data + 4);
+    if (sonyalpha->first_timestamp == 0) {
+      sonyalpha->first_timestamp = sonyalpha->header.timestamp;      
+      GST_DEBUG_OBJECT (sonyalpha, "First timestamp value is %lu.", sonyalpha->first_timestamp);
+    }
+  }
+  
+  /* Get the payload and padding sizes */
+  sonyalpha->header.payload_size = GST_READ_UINT24_BE(data + 12);
+  sonyalpha->header.padding_size = GST_READ_UINT8(data + 15);
+  GST_DEBUG_OBJECT (sonyalpha, "p%01hhu | seq=%06d | ts=%010llu | s=%lu+%hhu", sonyalpha->header.payload_type, sonyalpha->header.sequence_number, sonyalpha->header.timestamp, sonyalpha->header.payload_size, sonyalpha->header.padding_size);
+
   gst_adapter_unmap (sonyalpha->adapter);
-  return 1;
+  return 128;
 
 
 need_more_data:
@@ -193,7 +200,7 @@ need_more_data:
 wrong_header:
   {
     GST_ELEMENT_ERROR (sonyalpha, STREAM, DEMUX, (NULL),
-        ("Boundary not found in the sonyalpha header"));
+        ("Wrong header found for sonyalpha"));
     gst_adapter_unmap (sonyalpha->adapter);
     return SONYALPHA_DATA_ERROR;
   }
@@ -208,91 +215,91 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   gint size = 1;
   GstFlowReturn res;
 
-  sonyalpha = GST_SONYALPHA_DEMUX (parent);
+  sonyalpha = GST_SONYALPHA_DEMUX (parent));
   adapter = sonyalpha->adapter;
 
   res = GST_FLOW_OK;
 
   if (GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_DISCONT)) {
-    ((GstSonyAlphaPad*)sonyalpha->srcpad)->discont = TRUE;
     gst_adapter_clear (adapter);
   }
   gst_adapter_push (adapter, buf);
 
   while (gst_adapter_available (adapter) > 0) {
-    GstSonyAlphaPad *srcpad;
+    GstPad *srcpad;
     GstBuffer *outbuf;
     gboolean created;
-    gint datalen;
 
-    if (G_UNLIKELY (!sonyalpha->header_completed)) {
+    if (!sonyalpha->header_completed) {
       if ((size = sonyalpha_parse_header (sonyalpha)) < 0) {
         goto nodata;
       } else {
-        gst_adapter_flush (adapter, size);
         sonyalpha->header_completed = TRUE;
       }
     }
     
-    /*
-    if ((size = sonyalpha_find_boundary (sonyalpha, &datalen)) < 0) {
-      goto nodata;
-    }*/
-    
-
-    /* Invalidate header info */
-    sonyalpha->header_completed = FALSE;
-    sonyalpha->content_length = -1;
-
-    if (G_UNLIKELY (datalen <= 0)) {
-      GST_DEBUG_OBJECT (sonyalpha, "skipping empty content.");
-      gst_adapter_flush (adapter, size - datalen);
-    } else {
-      GstClockTime ts;
-
-      srcpad = sonyalpha->srcpad;
-
-      ts = gst_adapter_prev_pts (adapter, NULL);
-      outbuf = gst_adapter_take_buffer (adapter, datalen);
-      gst_adapter_flush (adapter, size - datalen);
-
-      if (created) {
-        GstTagList *tags;
-        GstSegment segment;
-
-        gst_segment_init (&segment, GST_FORMAT_TIME);
-
-        /* Push new segment, first buffer has 0 timestamp */
-        gst_pad_push_event (srcpad->pad, gst_event_new_segment (&segment));
-
-        tags = gst_tag_list_new (GST_TAG_CONTAINER_FORMAT, "SonyAlpha", NULL);
-        gst_tag_list_set_scope (tags, GST_TAG_SCOPE_GLOBAL);
-        gst_pad_push_event (srcpad->pad, gst_event_new_tag (tags));
-      }
-
-      outbuf = gst_buffer_make_writable (outbuf);
-      if (srcpad->last_ts == GST_CLOCK_TIME_NONE || srcpad->last_ts != ts) {
-        GST_BUFFER_TIMESTAMP (outbuf) = ts;
-        srcpad->last_ts = ts;
-      } else {
-        GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
-      }
-
-      if (srcpad->discont) {
-        GST_BUFFER_FLAG_SET (outbuf, GST_BUFFER_FLAG_DISCONT);
-        srcpad->discont = FALSE;
-      } else {
-        GST_BUFFER_FLAG_UNSET (outbuf, GST_BUFFER_FLAG_DISCONT);
-      }
-
-      GST_DEBUG_OBJECT (sonyalpha,
-          "pushing buffer with timestamp %" GST_TIME_FORMAT,
-          GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (outbuf)));
-      res = gst_pad_push (srcpad->pad, outbuf);
-      res = gst_sonyalpha_combine_flows (sonyalpha, srcpad, res);
-      if (res != GST_FLOW_OK)
-        break;
+    if (gst_adapter_available(adapter) < (sonyalpha->header.payload_size + sonyalpha->header.padding_size)) {
+      GST_DEBUG_OBJECT(sonyalpha, "need %llu bytes of buffer, got only %llu bytes", 
+        (sonyalpha->header.payload_size + sonyalpha->header.padding_size),
+        gst_adapter_available(adapter));
+      return GST_FLOW_OK;
     }
+    
+    /* We have enough data to continue, invalidate the header */
+    sonyalpha->header_completed = FALSE;
+
+    if (sonyalpha->header.payload_type != 0x01) {
+      /* We don't handle other payloads, skip them. */
+      gst_adapter_flush (adapter, sonyalpha->header.payload_size + sonyalpha->header.padding_size);
+      continue;
+    }
+
+	  /* We have a file header, lets start working on these values. */
+	  srcpad = sonyalpha->srcpad;
+    GstClockTime ts;
+
+    ts = gst_adapter_prev_pts (adapter, NULL);
+    outbuf = gst_adapter_take_buffer (adapter, sonyalpha->header.payload_size);
+    gst_adapter_flush (adapter, sonyalpha->header.padding_size);
+
+    GstTagList *tags;
+    GstSegment segment;
+
+    gst_segment_init (&segment, GST_FORMAT_TIME);
+
+    /* Push new segment, first buffer has 0 timestamp */
+    gst_pad_push_event (srcpad, gst_event_new_segment (&segment));
+
+    tags = gst_tag_list_new (GST_TAG_CONTAINER_FORMAT, "SonyAlpha", NULL);
+    gst_pad_push_event (srcpad, gst_event_new_tag (tags));
+
+
+    outbuf = gst_buffer_make_writable (outbuf);
+    GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
+    /*
+    if (srcpad->last_ts == GST_CLOCK_TIME_NONE || srcpad->last_ts != ts) {
+      GST_BUFFER_TIMESTAMP (outbuf) = ts;
+      srcpad->last_ts = ts;
+    } else { 
+      GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
+    }
+
+    if (srcpad->discont) {
+      GST_BUFFER_FLAG_SET (outbuf, GST_BUFFER_FLAG_DISCONT);
+      srcpad->discont = FALSE;
+    } else { 
+      GST_BUFFER_FLAG_UNSET (outbuf, GST_BUFFER_FLAG_DISCONT);
+    }
+*/
+    GST_DEBUG_OBJECT (sonyalpha,
+        "pushing buffer with timestamp %" GST_TIME_FORMAT,
+        GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (outbuf)));
+    res = gst_pad_push (srcpad, outbuf);
+    //res = gst_sonyalpha_combine_flows (sonyalpha, srcpad, res);
+    
+    if (res != GST_FLOW_OK)
+      break;
+    
   }
 
 nodata:
@@ -323,7 +330,6 @@ gst_sonyalpha_demux_change_state (GstElement * element,
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       sonyalpha->header_completed = FALSE;
       gst_adapter_clear (sonyalpha->adapter);
-      sonyalpha->content_length = -1;
       sonyalpha->scanpos = 0;
       break;
     case GST_STATE_CHANGE_READY_TO_NULL:
@@ -367,13 +373,3 @@ gst_sonyalpha_get_property (GObject * object, guint prop_id,
 }
 
 
-
-gboolean
-gst_sonyalpha_demux_plugin_init (GstPlugin * plugin)
-{
-  GST_DEBUG_CATEGORY_INIT (gst_sonyalpha_demux_debug,
-      "sonyalphademux", 0, "sonyalpha demuxer");
-
-  return gst_element_register (plugin, "sonyalphademux", GST_RANK_PRIMARY,
-      GST_TYPE_SONYALPHA_DEMUX);
-}

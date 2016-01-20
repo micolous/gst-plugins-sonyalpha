@@ -26,6 +26,7 @@
 #include <gst/base/gstadapter.h>
 
 #include <string.h>
+#include <arpa/inet.h>
 
 G_BEGIN_DECLS
 
@@ -49,14 +50,27 @@ typedef struct
   GstPad *pad;                  /* reference for this pad is held by element we belong to */
 
   gchar *mime;
-
+  
   GstClockTime  last_ts;        /* last timestamp to make sure we don't send
                                  * two buffers with the same timestamp */
   GstFlowReturn last_ret;
 
   gboolean      discont;
+  
 }
 GstSonyAlphaPad;
+
+
+typedef struct
+{
+  uint8_t payload_type;
+  uint16_t sequence_number;
+  uint32_t timestamp;
+  uint32_t payload_size;
+  uint8_t padding_size;
+}
+GstSonyAlphaPayloadHeader;
+  
 
 /**
  * GstSonyAlphaDemux:
@@ -74,13 +88,16 @@ struct _GstSonyAlphaDemux
   GstAdapter *adapter;
 
   /* Header information of the current frame */
+  GstSonyAlphaPayloadHeader header;
   gboolean header_completed;
-  gint content_length;
 
   /* Index inside the current data when manually looking for the boundary */
   gint scanpos;
 
   gboolean singleStream;
+  uint32_t first_timestamp;     /* This is the first frame timestamp which we
+                                   see in the stream */
+
 };
 
 struct _GstSonyAlphaDemuxClass

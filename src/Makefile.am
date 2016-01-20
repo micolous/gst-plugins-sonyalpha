@@ -2,8 +2,7 @@
 plugin_LTLIBRARIES = libgstsonyalpha.la
 
 # sources used to compile this plug-in
-libgstsonyalpha_la_SOURCES = sonyalphademux.c sonyalphademux.h
-# plugin.c
+libgstsonyalpha_la_SOURCES = sonyalphademux.c sonyalphademux.h plugin.c
 
 # compiler and linker flags used to compile this plugin, set in configure.ac
 libgstsonyalpha_la_CFLAGS = $(GST_CFLAGS)

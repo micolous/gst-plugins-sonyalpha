@@ -3,30 +3,22 @@
 #endif
 
 #include <gst/gst.h>
-#include "gstdvswitchsrc.h"
-#include "gstdvswitchsink.h"
+#include "sonyalphademux.h"
 
-GST_DEBUG_CATEGORY (gst_dvswitch_debug);
+GST_DEBUG_CATEGORY (gst_sonyalpha_debug);
 
 /* entry point to initialize the plug-in
  * initialize the plug-in itself
  * register the element factories and other features
  */
 static gboolean
-dvswitch_init (GstPlugin * dvswitch)
+sonyalpha_init (GstPlugin * plugin)
 {
-  GST_DEBUG_CATEGORY_INIT (gst_dvswitch_debug, "dvswitch",
-      0, "Debug for dvswitch src/sink elements");
+  GST_DEBUG_CATEGORY_INIT (gst_sonyalpha_debug, "sonyalpha",
+      0, "Debug for Sony Alpha elements");
 
-  if (!gst_element_register (dvswitch, "dvswitchsrc", GST_RANK_NONE,
-      GST_TYPE_DVSWITCHSRC))
-    return FALSE;
-
-  if (!gst_element_register (dvswitch, "dvswitchsink", GST_RANK_NONE,
-      GST_TYPE_DVSWITCH_SINK))
-    return FALSE;
-
-  return TRUE;
+  return gst_element_register (plugin, "sonyalphademux", GST_RANK_PRIMARY,
+      GST_TYPE_SONYALPHA_DEMUX);
 }
 
 /* PACKAGE: this is usually set by autotools depending on some _INIT macro
@@ -35,17 +27,17 @@ dvswitch_init (GstPlugin * dvswitch)
  * compile this code. GST_PLUGIN_DEFINE needs PACKAGE to be defined.
  */
 #ifndef PACKAGE
-#define PACKAGE "dvswitch"
+#define PACKAGE "sonyalpha"
 #endif
 
 GST_PLUGIN_DEFINE (
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
-    dvswitch,
-    "Reads/Writes a DIF/DV stream from/to a DVSwitch server.",
-    dvswitch_init,
+    sonyalpha,
+    "Sony Alpha plugin",
+    sonyalpha_init,
     VERSION,
     "LGPL",
     PACKAGE_NAME,
-    "https://github.com/timvideos/gst-plugins-dvswitch"
+    "https://github.com/micolous/gst-plugins-sonyalpha"
 )
