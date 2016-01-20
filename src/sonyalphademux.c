@@ -215,10 +215,12 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   gint size = 1;
   GstFlowReturn res;
 
-  sonyalpha = GST_SONYALPHA_DEMUX (parent));
+  sonyalpha = GST_SONYALPHA_DEMUX (parent);
   adapter = sonyalpha->adapter;
 
   res = GST_FLOW_OK;
+  
+  GST_DEBUG_OBJECT (adapter, "First bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(buf), GST_READ_UINT64_BE(buf + 8));
 
   if (GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_DISCONT)) {
     gst_adapter_clear (adapter);
