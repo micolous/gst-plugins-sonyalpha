@@ -122,7 +122,6 @@ gst_sonyalpha_demux_init (GstSonyAlphaDemux * sonyalpha)
 
   sonyalpha->adapter = gst_adapter_new ();
   sonyalpha->header_completed = FALSE;
-  sonyalpha->scanpos = 0;
 }
 
 
@@ -143,7 +142,6 @@ static gint
 sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
 {
   const guint8 *data;
-  const guint8 *dataend;
   memset(&(sonyalpha->header), 0, sizeof(GstSonyAlphaPayloadHeader));
 
   int datalen;
@@ -164,7 +162,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
   }
 
   /* Check for a magic sequence */
-  uint32_t magic = GST_READ_UINT32_BE(data + 8);
+  guint32 magic = GST_READ_UINT32_BE(data + 8);
   if (magic != 0x24356879) {
     GST_DEBUG_OBJECT (sonyalpha, "Did not get magic number (0x24356879), got 0x%lx instead", magic);
     goto wrong_header;
@@ -185,7 +183,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
   /* Get the payload and padding sizes */
   sonyalpha->header.payload_size = GST_READ_UINT24_BE(data + 12);
   sonyalpha->header.padding_size = GST_READ_UINT8(data + 15);
-  GST_DEBUG_OBJECT (sonyalpha, "p%01hhu | seq=%06d | ts=%010llu | s=%lu+%hhu", sonyalpha->header.payload_type, sonyalpha->header.sequence_number, sonyalpha->header.timestamp, sonyalpha->header.payload_size, sonyalpha->header.padding_size);
+  GST_DEBUG_OBJECT (sonyalpha, "p%01hhu | seq=%06" G_GUINT16_FORMAT " | ts=%010" G_GUINT32_FORMAT " | s=%" G_GUINT32_FORMAT "+%hhu", sonyalpha->header.payload_type, sonyalpha->header.sequence_number, sonyalpha->header.timestamp, sonyalpha->header.payload_size, sonyalpha->header.padding_size);
 
   gst_adapter_unmap (sonyalpha->adapter);
   return 136;
@@ -228,8 +226,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   while (gst_adapter_available (adapter) > 0) {
     GstPad *srcpad;
     GstBuffer *outbuf;
-    guint8 *framedata;
-    gboolean created;
+    const guint8 *framedata;
 
     if (!sonyalpha->header_completed) {
       if ((size = sonyalpha_parse_header (sonyalpha)) < 0) {
@@ -241,7 +238,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     }
     
     if (gst_adapter_available(adapter) < (sonyalpha->header.payload_size + sonyalpha->header.padding_size)) {
-      GST_DEBUG_OBJECT(sonyalpha, "need %llu bytes of buffer, got only %llu bytes", 
+      GST_DEBUG_OBJECT(sonyalpha, "need %lu bytes of buffer, got only %lu bytes", 
         (sonyalpha->header.payload_size + sonyalpha->header.padding_size),
         gst_adapter_available(adapter));
       return GST_FLOW_OK;
@@ -258,16 +255,13 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 
 	  /* We have a file header, lets start working on these values. */
 	  srcpad = sonyalpha->srcpad;
-    GstClockTime ts;
-
-    ts = gst_adapter_prev_pts (adapter, NULL);
     framedata = gst_adapter_map (adapter, sonyalpha->header.payload_size);
     
     /* Copy the frame into a buffer */
     outbuf = gst_buffer_new_allocate(NULL, sonyalpha->header.payload_size, NULL);
     gst_buffer_fill(outbuf, 0, framedata, sonyalpha->header.payload_size);
     
-    GST_DEBUG_OBJECT (sonyalpha, "Frame first bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(framedata), GST_READ_UINT64_BE(framedata + 8));
+    //GST_DEBUG_OBJECT (sonyalpha, "Frame first bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(framedata), GST_READ_UINT64_BE(framedata + 8));
         
     /* Unmap the frame and flush the data */
     gst_adapter_unmap(adapter);
@@ -284,7 +278,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     tags = gst_tag_list_new (GST_TAG_CONTAINER_FORMAT, "SonyAlpha", NULL);
     gst_pad_push_event (srcpad, gst_event_new_tag (tags));
 
-
+    /* Set timestamp relative to stream start, milliseconds to nanoseconds */
     outbuf = gst_buffer_make_writable (outbuf);
     GST_BUFFER_TIMESTAMP (outbuf) = ((guint64)(sonyalpha->header.timestamp - sonyalpha->first_timestamp)) * 1000000;
 
@@ -326,7 +320,6 @@ gst_sonyalpha_demux_change_state (GstElement * element,
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       sonyalpha->header_completed = FALSE;
       gst_adapter_clear (sonyalpha->adapter);
-      sonyalpha->scanpos = 0;
       break;
     case GST_STATE_CHANGE_READY_TO_NULL:
       break;
@@ -342,9 +335,9 @@ static void
 gst_sonyalpha_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
-  GstSonyAlphaDemux *filter;
+  //GstSonyAlphaDemux *filter;
 
-  filter = GST_SONYALPHA_DEMUX (object);
+  //filter = GST_SONYALPHA_DEMUX (object);
 
   switch (prop_id) {
     default:
@@ -357,9 +350,9 @@ static void
 gst_sonyalpha_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
-  GstSonyAlphaDemux *filter;
+  //GstSonyAlphaDemux *filter;
 
-  filter = GST_SONYALPHA_DEMUX (object);
+  //filter = GST_SONYALPHA_DEMUX (object);
 
   switch (prop_id) {
     default:

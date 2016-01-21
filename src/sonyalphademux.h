@@ -26,7 +26,6 @@
 #include <gst/base/gstadapter.h>
 
 #include <string.h>
-#include <arpa/inet.h>
 
 G_BEGIN_DECLS
 
@@ -44,30 +43,13 @@ typedef struct _GstSonyAlphaDemuxClass GstSonyAlphaDemuxClass;
 #define SONYALPHA_DATA_ERROR     -2
 #define SONYALPHA_DATA_EOS       -3
 
-/* all information needed for one sonyalpha stream */
 typedef struct
 {
-  GstPad *pad;                  /* reference for this pad is held by element we belong to */
-
-  gchar *mime;
-  
-  GstClockTime  last_ts;        /* last timestamp to make sure we don't send
-                                 * two buffers with the same timestamp */
-  GstFlowReturn last_ret;
-
-  gboolean      discont;
-  
-}
-GstSonyAlphaPad;
-
-
-typedef struct
-{
-  uint8_t payload_type;
-  uint16_t sequence_number;
-  uint32_t timestamp;
-  uint32_t payload_size;
-  uint8_t padding_size;
+  guint8 payload_type;
+  guint16 sequence_number;
+  guint32 timestamp;
+  guint32 payload_size;
+  guint8 padding_size;
 }
 GstSonyAlphaPayloadHeader;
   
@@ -91,11 +73,7 @@ struct _GstSonyAlphaDemux
   GstSonyAlphaPayloadHeader header;
   gboolean header_completed;
 
-  /* Index inside the current data when manually looking for the boundary */
-  gint scanpos;
-
-  gboolean singleStream;
-  uint32_t first_timestamp;     /* This is the first frame timestamp which we
+  guint32 first_timestamp;     /* This is the first frame timestamp which we
                                    see in the stream */
 
 };
