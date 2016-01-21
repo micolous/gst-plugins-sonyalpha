@@ -150,10 +150,10 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
 
   datalen = gst_adapter_available (sonyalpha->adapter);
 
-  if (datalen < 128)
+  if (datalen < 136)
     goto need_more_data;
 
-  data = gst_adapter_take_buffer (sonyalpha->adapter, 128);
+  data = gst_adapter_map (sonyalpha->adapter, 136);
 
 
   /* Need a header */
@@ -165,7 +165,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
 
   /* Check for a magic sequence */
   uint32_t magic = GST_READ_UINT32_BE(data + 8);
-  if (magic != htonl(0x24356879)) {
+  if (magic != 0x24356879) {
     GST_DEBUG_OBJECT (sonyalpha, "Did not get magic number (0x24356879), got 0x%lx instead", magic);
     goto wrong_header;
   }
@@ -188,7 +188,7 @@ sonyalpha_parse_header (GstSonyAlphaDemux * sonyalpha)
   GST_DEBUG_OBJECT (sonyalpha, "p%01hhu | seq=%06d | ts=%010llu | s=%lu+%hhu", sonyalpha->header.payload_type, sonyalpha->header.sequence_number, sonyalpha->header.timestamp, sonyalpha->header.payload_size, sonyalpha->header.padding_size);
 
   gst_adapter_unmap (sonyalpha->adapter);
-  return 128;
+  return 136;
 
 
 need_more_data:
@@ -219,8 +219,6 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   adapter = sonyalpha->adapter;
 
   res = GST_FLOW_OK;
-  
-  GST_DEBUG_OBJECT (adapter, "First bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(buf), GST_READ_UINT64_BE(buf + 8));
 
   if (GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_DISCONT)) {
     gst_adapter_clear (adapter);
@@ -230,12 +228,14 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   while (gst_adapter_available (adapter) > 0) {
     GstPad *srcpad;
     GstBuffer *outbuf;
+    guint8 *framedata;
     gboolean created;
 
     if (!sonyalpha->header_completed) {
       if ((size = sonyalpha_parse_header (sonyalpha)) < 0) {
         goto nodata;
       } else {
+        gst_adapter_flush(adapter, size);
         sonyalpha->header_completed = TRUE;
       }
     }
@@ -261,8 +261,17 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     GstClockTime ts;
 
     ts = gst_adapter_prev_pts (adapter, NULL);
-    outbuf = gst_adapter_take_buffer (adapter, sonyalpha->header.payload_size);
-    gst_adapter_flush (adapter, sonyalpha->header.padding_size);
+    framedata = gst_adapter_map (adapter, sonyalpha->header.payload_size);
+    
+    /* Copy the frame into a buffer */
+    outbuf = gst_buffer_new_allocate(NULL, sonyalpha->header.payload_size, NULL);
+    gst_buffer_fill(outbuf, 0, framedata, sonyalpha->header.payload_size);
+    
+    GST_DEBUG_OBJECT (sonyalpha, "Frame first bytes were 0x%llx 0x%llx", GST_READ_UINT64_BE(framedata), GST_READ_UINT64_BE(framedata + 8));
+        
+    /* Unmap the frame and flush the data */
+    gst_adapter_unmap(adapter);
+    gst_adapter_flush (adapter, sonyalpha->header.payload_size + sonyalpha->header.padding_size);
 
     GstTagList *tags;
     GstSegment segment;
@@ -277,7 +286,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 
 
     outbuf = gst_buffer_make_writable (outbuf);
-    GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
+    GST_BUFFER_TIMESTAMP (outbuf) = (sonyalpha->header.timestamp - sonyalpha->first_timestamp) * 1000000;
     /*
     if (srcpad->last_ts == GST_CLOCK_TIME_NONE || srcpad->last_ts != ts) {
       GST_BUFFER_TIMESTAMP (outbuf) = ts;
@@ -298,7 +307,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
         GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (outbuf)));
     res = gst_pad_push (srcpad, outbuf);
     //res = gst_sonyalpha_combine_flows (sonyalpha, srcpad, res);
-    
+
     if (res != GST_FLOW_OK)
       break;
     
