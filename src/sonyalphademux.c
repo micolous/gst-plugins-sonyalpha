@@ -245,7 +245,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     /* We have enough data to continue, invalidate the header */
     sonyalpha->header_completed = FALSE;
 
-    if (sonyalpha->header.payload_type != 0x01) {
+    if (sonyalpha->header.payload_type != 0x01 && sonyalpha->header.payload_type != 0x11) {
       /* We don't handle other payloads, skip them. */
       gst_adapter_flush (adapter, sonyalpha->header.payload_size + sonyalpha->header.padding_size);
       continue;
