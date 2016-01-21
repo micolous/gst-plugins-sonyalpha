@@ -2,14 +2,12 @@
 
 This is a project to access the Sony Alpha Liveview (Smart Remote) API using GStreamer.
 
-- todo: implement demuxer
-- todo: implement liveview
-
-## Prototype
-
-There is a prototype demuxer written in Python, `extract_frames.py`.  This does not handle any of the setup/handshake process.
+This consists only of a demuxer, `sonyalphademux`, which can demux the liveview stream into JPEG frames at a variable bitrate.
 
 ## Setting up a connection
+
+**Note:** This shows an example connection with a Sony a6000.  Other cameras may have different URLs and requirements.
+
 ### On the camera...
 
 You need to go into the Applications menu, and select "Smart Remote Embedded".  You may need to update the firmware first in order to have access to this menu.
@@ -61,49 +59,27 @@ This will then give you a HTTP path where you can stream live camera images.  Th
 
 You can stop and start accessing the liveview stream whenever you like.
 
-## Framing format
+## Viewing the live stream with GStreamer
 
-The file is divided into payloads with a common header.  One of the payload types contains JPEG frame data.
+Once the camera has `startRecMode` and `startLiveview` (see above), you can build a simple GStreamer pipeline to watch the incoming video feed:
 
-This is written out a little differently to [Sony's documentation](http://dl.developer.sony.com/cameras/sdks/CameraRemoteAPIbeta_SDK_2.20.zip) in order to simplify.
+```
+$ gst-launch-1.0 souphttpsrc location=http://192.168.122.1:8080/liveview/liveviewstream ! sonyalphademux ! jpegparse ! jpegdec ! videoconvert ! autovideosink
+```
 
-All values are big endian (network byte order).
+## Recording the livestream with curl, and playing back with GStreamer
 
-### Common header (16 bytes)
+You can also save some frames for later using curl, then play them back with a similar pipeline:
 
-* `uint8` start_byte == 0xFF
-* `uint8` payload_type
-* `uint16` sequence_number
-* `uint32` timestamp (more on this later)
-* `char[4]` magic_sequence == 0x24 0x35 0x68 0x79
-* `uint24` payload_size
-* `uint8` padding_size
+```
+$ curl http://192.168.122.1:8080/liveview/liveviewstream > /tmp/cameraframes
+(Wait for 10 seconds) ^C
+$ gst-launch-1.0 filesrc location=/tmp/cameraframes ! sonyalphademux ! jpegparse ! jpegdec ! videoconvert ! autovideosink
+```
 
-### Payloads
+There is no audio on the stream, and the additional metadata from the frame_info payload is not read in this version of the demuxer.
 
-These are indicated by the `payload_type` variable:
-
-#### `0x01` Frame payload (120 + payload_size + padding_size bytes)
-
-* `char[4]` reserved
-* `uint8` reserved == 0x00
-* `char[115]` reserved
-* `char[payload_size]` jpeg_frame
-* `char[padding_size]` padding
-
-For frame payloads, the timestamp is given in milliseconds.  The timestamp is relative to when the capture was started.
-
-There are about 18 frames per second of video, but this framerate is never guaranteed.
-
-#### `0x02` Frame info payload (120 + frame_info_size + padding_size bytes)
-
-* `uint16` frame_info_version
-* `uint16` frame_count
-* `uint16` frame_info_size
-* `char[114]` reserved
-* `char[frame_info_size]` frame_info
-* `char[padding_size]` padding
-
+**Note:** Smart Remote Embedded only allows one connection to stream live data from the camera.  If you create a second connection and open the `liveviewstream`, the first connection will be dropped.
 
 ## Acknowledgements
 

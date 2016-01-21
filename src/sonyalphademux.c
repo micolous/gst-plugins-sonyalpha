@@ -27,7 +27,7 @@
  * <refsect2>
  * <title>Sample pipelines</title>
  * |[
- * gst-launch-1.0 filesrc location=/tmp/test.sonyalpha ! sonyalphademux ! image/jpeg,framerate=\(fraction\)5/1 ! jpegparse ! jpegdec ! videoconvert ! autovideosink
+ * gst-launch-1.0 souphttpsrc location=http://192.168.122.1:8080/liveview/liveviewstream ! sonyalphademux ! image/jpeg,framerate=\(fraction\)5/1 ! jpegparse ! jpegdec ! videoconvert ! autovideosink
  * ]| a simple pipeline to demux a sonyalpha file muxed with #GstSonyAlphaMux
  * containing JPEG frames.
  * </refsect2>
@@ -287,26 +287,11 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 
     outbuf = gst_buffer_make_writable (outbuf);
     GST_BUFFER_TIMESTAMP (outbuf) = ((guint64)(sonyalpha->header.timestamp - sonyalpha->first_timestamp)) * 1000000;
-    /*
-    if (srcpad->last_ts == GST_CLOCK_TIME_NONE || srcpad->last_ts != ts) {
-      GST_BUFFER_TIMESTAMP (outbuf) = ts;
-      srcpad->last_ts = ts;
-    } else { 
-      GST_BUFFER_TIMESTAMP (outbuf) = GST_CLOCK_TIME_NONE;
-    }
 
-    if (srcpad->discont) {
-      GST_BUFFER_FLAG_SET (outbuf, GST_BUFFER_FLAG_DISCONT);
-      srcpad->discont = FALSE;
-    } else { 
-      GST_BUFFER_FLAG_UNSET (outbuf, GST_BUFFER_FLAG_DISCONT);
-    }
-*/
     GST_DEBUG_OBJECT (sonyalpha,
         "pushing buffer with timestamp %" GST_TIME_FORMAT,
         GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (outbuf)));
     res = gst_pad_push (srcpad, outbuf);
-    //res = gst_sonyalpha_combine_flows (sonyalpha, srcpad, res);
 
     if (res != GST_FLOW_OK)
       break;
