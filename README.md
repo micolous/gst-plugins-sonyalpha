@@ -83,7 +83,7 @@ All values are big endian (network byte order).
 
 These are indicated by the `payload_type` variable:
 
-#### `0x01` Frame payload
+#### `0x01` Frame payload (120 + payload_size + padding_size bytes)
 
 * `char[4]` reserved
 * `uint8` reserved == 0x00
@@ -95,7 +95,7 @@ For frame payloads, the timestamp is given in milliseconds.  The timestamp is re
 
 There are about 18 frames per second of video, but this framerate is never guaranteed.
 
-#### `0x02` Frame info payload
+#### `0x02` Frame info payload (120 + frame_info_size + padding_size bytes)
 
 * `uint16` frame_info_version
 * `uint16` frame_count

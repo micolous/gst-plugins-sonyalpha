@@ -286,7 +286,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 
 
     outbuf = gst_buffer_make_writable (outbuf);
-    GST_BUFFER_TIMESTAMP (outbuf) = (sonyalpha->header.timestamp - sonyalpha->first_timestamp) * 1000000;
+    GST_BUFFER_TIMESTAMP (outbuf) = ((guint64)(sonyalpha->header.timestamp - sonyalpha->first_timestamp)) * 1000000;
     /*
     if (srcpad->last_ts == GST_CLOCK_TIME_NONE || srcpad->last_ts != ts) {
       GST_BUFFER_TIMESTAMP (outbuf) = ts;
