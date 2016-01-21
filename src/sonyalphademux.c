@@ -82,8 +82,6 @@ G_DEFINE_TYPE (GstSonyAlphaDemux, gst_sonyalpha_demux, GST_TYPE_ELEMENT);
 static void
 gst_sonyalpha_demux_class_init (GstSonyAlphaDemuxClass * klass)
 {
-  int i;
-
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
   GstElementClass *gstelement_class = GST_ELEMENT_CLASS (klass);
 
@@ -238,7 +236,7 @@ gst_sonyalpha_demux_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
     }
     
     if (gst_adapter_available(adapter) < (sonyalpha->header.payload_size + sonyalpha->header.padding_size)) {
-      GST_DEBUG_OBJECT(sonyalpha, "need %lu bytes of buffer, got only %lu bytes", 
+      GST_DEBUG_OBJECT(sonyalpha, "need %" G_GUINT32_FORMAT " bytes of buffer, got only %" G_GUINT32_FORMAT " bytes", 
         (sonyalpha->header.payload_size + sonyalpha->header.padding_size),
         gst_adapter_available(adapter));
       return GST_FLOW_OK;
